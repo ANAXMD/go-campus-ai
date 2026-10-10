@@ -1,0 +1,14 @@
+
+# Compiled binaries
+go-calculator
+*.exe
+*.out
+bin/
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+
+# Environment variables (just in case we use .env files later)
+.env
