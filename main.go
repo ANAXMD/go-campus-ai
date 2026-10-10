@@ -90,10 +90,16 @@ func studentsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status": "API is alive"}`))
+}
+
 func main() {
 	initDB() // From db.go
 	defer db.Close()
 
+	http.HandleFunc("/api/health", healthHandler)
 	// The route is protected by both the Logger and the API Key Auth
 	http.HandleFunc("/api/students", requestLogger(requireAPIKey(studentsHandler)))
 
