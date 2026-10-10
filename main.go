@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"time"
 )
 
 // The Unified Switchboard
@@ -43,6 +44,8 @@ func studentsHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
+		go sendWelcomeEmail(s.Name, s.Email)
 
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(s)
@@ -93,6 +96,15 @@ func studentsHandler(w http.ResponseWriter, r *http.Request) {
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status": "API is alive"}`))
+}
+
+func sendWelcomeEmail(name string, email string) {
+	log.Printf("[EMAIL THREAD] Preparing to send welcome email to %s (%s)...\n", name, email)
+
+	// Simulate the time it takes to talk to an external email server (like SendGrid or AWS SES)
+	time.Sleep(3 * time.Second)
+
+	log.Printf("[EMAIL THREAD] SUCCESS: Email delivered to %s!\n", email)
 }
 
 func main() {
