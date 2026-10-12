@@ -13,3 +13,10 @@ type Course struct {
 	Credits   int    `json:"credits"`
 	Professor string `json:"professor"`
 }
+
+type User struct {
+	ID           int    `json:"id"`
+	Email        string `json:"email"`
+	PasswordHash string `json:"-"` // The "-" prevents the password hash from ever being sent in a JSON response
+	CreatedAt    string `json:"created_at"`
+}

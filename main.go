@@ -13,6 +13,17 @@ func studentsHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case "GET":
+		// 1. Try to fetch from Redis first
+		cachedStudents, err := Cache.Get(Ctx, "all_students").Result()
+		if err == nil {
+			// CACHE HIT: Data exists in RAM. Send it immediately!
+			log.Println("[REDIS] Cache Hit! Serving from RAM ⚡")
+			w.Write([]byte(cachedStudents))
+			return
+		}
+
+		// CACHE MISS: Data is not in Redis. Ask PostgreSQL.
+		log.Println("[POSTGRES] Cache Miss! Querying hard drive 🐢")
 		rows, err := db.Query("SELECT id, name, email, major FROM students")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -29,7 +40,14 @@ func studentsHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			students = append(students, s)
 		}
-		json.NewEncoder(w).Encode(students)
+
+		// 2. Convert the Postgres data to JSON
+		studentsJSON, _ := json.Marshal(students)
+
+		// 3. Save the JSON in Redis for 10 minutes so the next request is blazing fast
+		Cache.Set(Ctx, "all_students", studentsJSON, 10*time.Minute)
+
+		w.Write(studentsJSON)
 
 	case "POST":
 		var s Student
@@ -108,12 +126,19 @@ func sendWelcomeEmail(name string, email string) {
 }
 
 func main() {
-	initDB() // From db.go
+	initDB()    // From db.go
+	initCache() // From cache.go
 	defer db.Close()
 
 	http.HandleFunc("/api/health", healthHandler)
-	// The route is protected by both the Logger and the API Key Auth
-	http.HandleFunc("/api/students", requestLogger(requireAPIKey(studentsHandler)))
+
+	// Lock the route with JWT!
+	http.HandleFunc("/api/students", requestLogger(RequireJWT(studentsHandler)))
+
+	// ADDED REGISTRATION ROUTE HERE
+	http.HandleFunc("/api/register", RegisterUser)
+	// ADDED ROUTES HERE
+	http.HandleFunc("/api/login", LoginUser)
 
 	log.Println("REST API live on port 8080...")
 	log.Fatal(http.ListenAndServe(":8080", nil))
