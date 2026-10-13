@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/rs/cors"
 )
 
 // The Unified Switchboard
@@ -139,7 +141,13 @@ func main() {
 	http.HandleFunc("/api/register", RegisterUser)
 	// ADDED ROUTES HERE
 	http.HandleFunc("/api/login", LoginUser)
+	// ADD THIS CORS CONFIGURATION:
+	c := cors.New(cors.Options{
+		AllowedOrigins: []string{"*"}, // Allows any frontend to connect (useful for local dev)
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders: []string{"Authorization", "Content-Type"},
+	})
 
 	log.Println("REST API live on port 8080...")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(":8080", c.Handler(http.DefaultServeMux)))
 }
