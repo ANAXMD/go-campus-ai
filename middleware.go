@@ -1,43 +1,27 @@
 package main
 
 import (
-	"log"
 	"net/http"
-	"os"
 	"time"
 )
 
-// requestLogger acts as a wrapper around any standard HTTP handler
-func requestLogger(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// 1. The Intercept: Start the stopwatch as soon as the request hits the server
-		start := time.Now()
-
-		// 2. The Pass-Through: Hand the request off to your actual database handler (e.g., getStudentsHandler)
-		next(w, r)
-
-		// 3. The Exit: Stop the stopwatch after the database finishes
-		duration := time.Since(start)
-
-		// 4. Print the diagnostic log to the terminal
-		log.Printf("Intercepted: [%s] %s | Execution Time: %v\n", r.Method, r.URL.Path, duration)
-	}
+// statusRecorder remembers the status code the handler wrote.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
 }
 
-// requireAPIKey blocks any request that doesn't have the correct secret header
-func requireAPIKey(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		key := r.Header.Get("X-API-Key")
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
 
-		// Pull the expected secret directly from the Linux OS
-		expectedKey := os.Getenv("CAMPUS_SECRET")
-
-		if key != expectedKey || expectedKey == "" {
-			log.Printf("BLOCKED: Unauthorized access attempt from %s\n", r.RemoteAddr)
-			http.Error(w, "Access Denied: Invalid API Key", http.StatusUnauthorized)
-			return
-		}
-
-		next(w, r)
-	}
+// requestLogger logs method, path, status and latency for every request.
+func (s *Server) requestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		s.log.Printf("%s %s -> %d (%v)", r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Microsecond))
+	})
 }

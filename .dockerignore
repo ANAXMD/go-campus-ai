@@ -1,0 +1,6 @@
+.git
+.github
+.env
+bin/
+campus-frontend-v2/
+*.md

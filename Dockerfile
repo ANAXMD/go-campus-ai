@@ -1,21 +1,21 @@
-# 1. Base Image: We start with a microscopic version of Linux that has Go pre-installed
-FROM golang:1.26.7-alpine
+# ---- build stage: full Go toolchain, discarded after compilation ----
+FROM golang:1.26.7-alpine AS build
+WORKDIR /src
 
-# 2. Working Directory: Create a folder inside the virtual machine to hold our code
-WORKDIR /app
-
-# 3. Dependencies: Copy your go.mod and go.sum files first, and download the Postgres driver
+# Copy the module files first so the dependency layer is cached until they change.
 COPY go.mod go.sum ./
 RUN go mod download
 
-# 4. Source Code: Copy the rest of your Go files, middleware, and Makefile into the container
 COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api .
 
-# 5. Compilation: Build the binary INSIDE the virtual machine
-RUN go build -o bin/api .
+# ---- runtime stage: a few MB of Alpine and one static binary ----
+FROM alpine:3.22
+RUN adduser -D -u 10001 app
+COPY --from=build /out/api /usr/local/bin/api
+USER app
 
-# 6. Networking: Tell the container to expose port 8080 to the outside world
 EXPOSE 8080
-
-# 7. Boot Command: When the container starts, execute the compiled binary
-CMD ["./bin/api"] 
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:8080/api/health || exit 1
+ENTRYPOINT ["api"]

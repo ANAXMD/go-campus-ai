@@ -1,14 +1,12 @@
-
 # Compiled binaries
-go-calculator
+bin/
 *.exe
 *.out
-bin/
 
 # IDE and OS files
 .vscode/
 .idea/
 .DS_Store
 
-# Environment variables (just in case we use .env files later)
+# Local secrets
 .env

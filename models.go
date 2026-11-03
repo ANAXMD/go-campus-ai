@@ -1,5 +1,6 @@
 package main
 
+// Student is both the database row and the JSON shape of the API.
 type Student struct {
 	ID    int    `json:"id"`
 	Name  string `json:"name"`
@@ -7,16 +8,9 @@ type Student struct {
 	Major string `json:"major"`
 }
 
-type Course struct {
-	ID        int    `json:"id"`
-	Title     string `json:"title"`
-	Credits   int    `json:"credits"`
-	Professor string `json:"professor"`
-}
-
+// User is an account that may sign in to the API.
 type User struct {
-	ID           int    `json:"id"`
-	Email        string `json:"email"`
-	PasswordHash string `json:"-"` // The "-" prevents the password hash from ever being sent in a JSON response
-	CreatedAt    string `json:"created_at"`
+	ID           int
+	Email        string
+	PasswordHash string
 }

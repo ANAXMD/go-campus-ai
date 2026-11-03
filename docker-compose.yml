@@ -1,25 +1,47 @@
+# Backend stack: Postgres + Redis + the Go API.
+# Secrets come from a .env file next to this one (copy .env.example).
 services:
   postgres-db:
     image: postgres:16-alpine
-    ports:
-      - "5432:5432"
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin
+      POSTGRES_USER: campus
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env and set POSTGRES_PASSWORD}
       POSTGRES_DB: campus_db
     volumes:
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:z
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432" # reachable from this machine only, not the network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U campus -d campus_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   redis-cache:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   api:
     build: .
-    restart: on-failure
+    restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
-      CAMPUS_SECRET: "super_secret_999"
+      DATABASE_URL: postgres://campus:${POSTGRES_PASSWORD}@postgres-db:5432/campus_db?sslmode=disable
+      REDIS_ADDR: redis-cache:6379
+      JWT_SECRET: ${JWT_SECRET:?copy .env.example to .env and set JWT_SECRET}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
     depends_on:
-      - postgres-db
+      postgres-db:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+
+volumes:
+  pgdata:
