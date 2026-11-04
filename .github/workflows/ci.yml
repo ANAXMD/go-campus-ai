@@ -8,6 +8,36 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+
+    # Real Postgres and Redis for the integration tests. GitHub sets CI=true, and
+    # the tests treat a missing TEST_* variable as a failure when CI is set, so
+    # these can never be skipped by accident.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      TEST_REDIS_ADDR: localhost:6379
+
     steps:
       - uses: actions/checkout@v4
 
@@ -21,8 +51,18 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Test (race detector on)
-        run: go test -race -count=1 ./...
+      - name: Test (race detector on; includes the Postgres and Redis integration tests)
+        shell: bash # explicit shell turns on pipefail, so a failing test is not hidden by tee
+        run: |
+          set -o pipefail   # without this, tee would hide a failing go test
+          go test -race -count=1 -v ./... 2>&1 | tee test.log
+
+      - name: Make sure the integration tests really ran
+        run: |
+          if grep -E -- '--- SKIP' test.log; then
+            echo "::error::a test was skipped; the integration tests must run in CI"
+            exit 1
+          fi
 
       - name: Build Docker image
         run: docker build -t go-campus-ai:ci .

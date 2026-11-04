@@ -38,6 +38,41 @@ func TestLoadConfigOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadConfigAdminsAndRegistration(t *testing.T) {
+	base := map[string]string{"DATABASE_URL": "postgres://x", "JWT_SECRET": testSecret}
+	with := func(extra map[string]string) map[string]string {
+		env := map[string]string{}
+		for k, v := range base {
+			env[k] = v
+		}
+		for k, v := range extra {
+			env[k] = v
+		}
+		return env
+	}
+
+	cfg, err := LoadConfig(mapEnv(base))
+	if err != nil || !cfg.AllowRegistration || len(cfg.AdminEmails) != 0 {
+		t.Fatalf("defaults: %+v, %v (registration should be open, with no admins)", cfg, err)
+	}
+
+	cfg, err = LoadConfig(mapEnv(with(map[string]string{"ADMIN_EMAILS": " Boss@Campus.edu,, second@campus.edu "})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(cfg.AdminEmails, "|"); got != "boss@campus.edu|second@campus.edu" {
+		t.Fatalf("admins = %q, want them trimmed and lower-cased", got)
+	}
+	if cfg.roleFor("boss@campus.edu") != RoleAdmin || cfg.roleFor("nobody@campus.edu") != RoleViewer {
+		t.Fatal("roleFor does not follow ADMIN_EMAILS")
+	}
+
+	cfg, err = LoadConfig(mapEnv(with(map[string]string{"ALLOW_REGISTRATION": "false", "ADMIN_EMAILS": "boss@campus.edu"})))
+	if err != nil || cfg.AllowRegistration {
+		t.Fatalf("ALLOW_REGISTRATION=false: %+v, %v", cfg, err)
+	}
+}
+
 func TestLoadConfigRejectsBadInput(t *testing.T) {
 	tests := []struct {
 		name string
@@ -49,6 +84,8 @@ func TestLoadConfigRejectsBadInput(t *testing.T) {
 		{"short secret", map[string]string{"DATABASE_URL": "x", "JWT_SECRET": "too-short"}, "at least 32"},
 		{"bad duration", map[string]string{"DATABASE_URL": "x", "JWT_SECRET": testSecret, "CACHE_TTL": "ten minutes"}, "CACHE_TTL"},
 		{"negative duration", map[string]string{"DATABASE_URL": "x", "JWT_SECRET": testSecret, "TOKEN_TTL": "-1h"}, "TOKEN_TTL"},
+		{"registration flag is not a bool", map[string]string{"DATABASE_URL": "x", "JWT_SECRET": testSecret, "ALLOW_REGISTRATION": "maybe"}, "ALLOW_REGISTRATION must be true or false"},
+		{"closed registration with nobody to sign up", map[string]string{"DATABASE_URL": "x", "JWT_SECRET": testSecret, "ALLOW_REGISTRATION": "false"}, "ADMIN_EMAILS"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -111,5 +148,8 @@ func TestEmbeddedMigrationsAreValid(t *testing.T) {
 		if !strings.Contains(all, "CREATE TABLE IF NOT EXISTS "+table) {
 			t.Errorf("no migration creates the %s table", table)
 		}
+	}
+	if !strings.Contains(all, "ADD COLUMN IF NOT EXISTS role") {
+		t.Error("no migration adds the users.role column")
 	}
 }

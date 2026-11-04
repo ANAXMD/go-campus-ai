@@ -12,10 +12,37 @@ export type Student = {
 
 export type StudentInput = Omit<Student, 'id'>
 
+/** One page of the directory, plus the size of the whole (filtered) result. */
+export type StudentPage = {
+  items: Student[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export type StudentStats = {
+  total: number
+  majors: number
+  topMajor: string
+  topCount: number
+}
+
+export type PageQuery = {
+  q: string
+  limit: number
+  offset: number
+}
+
+/** Admins can change the directory; viewers can only read it. */
+export type Role = 'admin' | 'viewer'
+
 export type Session = {
   token: string
   email: string
+  role: Role
 }
+
+const isRole = (value: unknown): value is Role => value === 'admin' || value === 'viewer'
 
 /** An error response from the API (or a failure to reach it, status 0). */
 export class ApiError extends Error {
@@ -52,7 +79,8 @@ export const sessionStore = {
       if (!raw) return null
       const session = JSON.parse(raw) as Session
       const exp = tokenExpiry(session.token)
-      if (!session.token || !session.email || exp === null || exp * 1000 <= Date.now()) {
+      // A saved session without a valid role predates roles; sign in again to get one.
+      if (!session.token || !session.email || !isRole(session.role) || exp === null || exp * 1000 <= Date.now()) {
         localStorage.removeItem(SESSION_KEY)
         return null
       }
@@ -112,9 +140,15 @@ export const api = {
     request<Session>('/api/login', { method: 'POST', body: { email, password } }),
 
   register: (email: string, password: string) =>
-    request<{ id: number; email: string }>('/api/register', { method: 'POST', body: { email, password } }),
+    request<{ id: number; email: string; role: Role }>('/api/register', { method: 'POST', body: { email, password } }),
 
-  listStudents: (token: string) => request<Student[]>('/api/students', { token }),
+  listStudents: (token: string, { q, limit, offset }: PageQuery) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+    if (q) params.set('q', q)
+    return request<StudentPage>(`/api/students?${params}`, { token })
+  },
+
+  studentStats: (token: string) => request<StudentStats>('/api/students/stats', { token }),
 
   createStudent: (token: string, input: StudentInput) =>
     request<Student>('/api/students', { method: 'POST', body: input, token }),

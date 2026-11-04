@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,9 +18,16 @@ type Config struct {
 	RedisPassword  string
 	JWTSecret      []byte
 	AllowedOrigins []string
-	CacheTTL       time.Duration
-	TokenTTL       time.Duration
-	EmailDelay     time.Duration
+	// AdminEmails is the single source of truth for who is an admin. It is
+	// applied to the database at every startup, so removing an address here
+	// demotes that account the next time the API restarts.
+	AdminEmails []string
+	// AllowRegistration false means invite-only: only the addresses in
+	// AdminEmails may create an account.
+	AllowRegistration bool
+	CacheTTL          time.Duration
+	TokenTTL          time.Duration
+	EmailDelay        time.Duration
 }
 
 const minSecretLen = 32
@@ -36,6 +44,8 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		CacheTTL:      10 * time.Minute,
 		TokenTTL:      24 * time.Hour,
 		EmailDelay:    3 * time.Second,
+
+		AllowRegistration: true,
 	}
 
 	var problems []error
@@ -50,6 +60,23 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		if origin = strings.TrimSpace(origin); origin != "" {
 			cfg.AllowedOrigins = append(cfg.AllowedOrigins, origin)
 		}
+	}
+
+	for _, email := range strings.Split(getenv("ADMIN_EMAILS"), ",") {
+		if email = strings.ToLower(strings.TrimSpace(email)); email != "" {
+			cfg.AdminEmails = append(cfg.AdminEmails, email)
+		}
+	}
+
+	if raw := getenv("ALLOW_REGISTRATION"); raw != "" {
+		if allow, err := strconv.ParseBool(raw); err != nil {
+			problems = append(problems, fmt.Errorf("ALLOW_REGISTRATION must be true or false, got %q", raw))
+		} else {
+			cfg.AllowRegistration = allow
+		}
+	}
+	if !cfg.AllowRegistration && len(cfg.AdminEmails) == 0 {
+		problems = append(problems, errors.New("ALLOW_REGISTRATION=false needs at least one address in ADMIN_EMAILS, otherwise nobody could ever sign up"))
 	}
 
 	for _, d := range []struct {
@@ -83,4 +110,14 @@ func valueOr(v, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+// roleFor is the role a newly registered address receives.
+func (c Config) roleFor(email string) Role {
+	for _, admin := range c.AdminEmails {
+		if admin == email {
+			return RoleAdmin
+		}
+	}
+	return RoleViewer
 }

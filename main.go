@@ -43,6 +43,18 @@ func run(logger *log.Logger) error {
 		return err
 	}
 
+	// The ADMIN_EMAILS setting is the source of truth for roles; apply it now so
+	// accounts that already exist are promoted or demoted to match.
+	store := NewPGStore(db)
+	if err := store.SyncAdmins(ctx, cfg.AdminEmails); err != nil {
+		return fmt.Errorf("apply ADMIN_EMAILS: %w", err)
+	}
+	if len(cfg.AdminEmails) == 0 {
+		logger.Println("WARNING: ADMIN_EMAILS is empty, so nobody can change the directory (everyone is a read-only viewer)")
+	} else {
+		logger.Printf("administrators configured: %d", len(cfg.AdminEmails))
+	}
+
 	// Redis is an optimisation, not a dependency: if it is unreachable the API
 	// still works, just without caching.
 	var cache Cache = NopCache{}
@@ -56,7 +68,7 @@ func run(logger *log.Logger) error {
 		defer rc.Close()
 	}
 
-	srv, err := NewServer(cfg, NewPGStore(db), cache, logger)
+	srv, err := NewServer(cfg, store, cache, logger)
 	if err != nil {
 		return err
 	}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,8 @@ import (
 
 // ------------------------------------------------------------------ fakes
 
+// memStore is an in-memory Store. It must behave exactly like PGStore;
+// store_contract_test.go runs the same suite against both to prove it.
 type memStore struct {
 	mu       sync.Mutex
 	nextID   int
@@ -25,8 +28,12 @@ type memStore struct {
 	users    map[string]User
 	pingErr  error
 	listErr  error
-	nilList  bool // return a nil slice for an empty table, like a careless real store might
-	reads    int  // number of ListStudents calls, to prove the cache is used
+	nilList  bool // return a nil slice for an empty page, like a careless real store might
+	reads    int  // number of ListStudents and StudentStats calls, to prove the cache is used
+
+	// afterList runs after ListStudents has read its data but before it returns,
+	// which lets a test slip a write in at the worst possible moment.
+	afterList func()
 }
 
 func newMemStore() *memStore {
@@ -35,22 +42,59 @@ func newMemStore() *memStore {
 
 func (m *memStore) Ping(context.Context) error { return m.pingErr }
 
-func (m *memStore) ListStudents(context.Context) ([]Student, error) {
+func (m *memStore) ListStudents(_ context.Context, q StudentQuery) (StudentPage, error) {
+	m.mu.Lock()
+	m.reads++
+	if m.listErr != nil {
+		m.mu.Unlock()
+		return StudentPage{}, m.listErr
+	}
+
+	needle := strings.ToLower(q.Search)
+	var matched []Student
+	for _, s := range m.students {
+		if needle == "" ||
+			strings.Contains(strings.ToLower(s.Name), needle) ||
+			strings.Contains(strings.ToLower(s.Email), needle) ||
+			strings.Contains(strings.ToLower(s.Major), needle) {
+			matched = append(matched, s)
+		}
+	}
+	sort.Slice(matched, func(i, j int) bool { return matched[i].ID < matched[j].ID })
+
+	page := StudentPage{Total: len(matched), Limit: q.Limit, Offset: q.Offset}
+	if !m.nilList {
+		page.Items = []Student{}
+	}
+	if q.Offset < len(matched) {
+		end := min(q.Offset+q.Limit, len(matched))
+		page.Items = append(page.Items, matched[q.Offset:end]...)
+	}
+	hook := m.afterList
+	m.mu.Unlock()
+
+	if hook != nil {
+		hook()
+	}
+	return page, nil
+}
+
+func (m *memStore) StudentStats(context.Context) (StudentStats, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.reads++
-	if m.listErr != nil {
-		return nil, m.listErr
-	}
-	var out []Student
-	if !m.nilList {
-		out = []Student{}
-	}
+	counts := map[string]int{}
 	for _, s := range m.students {
-		out = append(out, s)
+		counts[s.Major]++
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out, nil
+	st := StudentStats{Total: len(m.students), Majors: len(counts)}
+	for major, n := range counts {
+		// Most students wins; ties go to the major that sorts first by bytes.
+		if n > st.TopCount || (n == st.TopCount && major < st.TopMajor) {
+			st.TopMajor, st.TopCount = major, n
+		}
+	}
+	return st, nil
 }
 
 func (m *memStore) emailTaken(email string, exceptID int) bool {
@@ -98,13 +142,13 @@ func (m *memStore) DeleteStudent(_ context.Context, id int) error {
 	return nil
 }
 
-func (m *memStore) CreateUser(_ context.Context, email, hash string) (User, error) {
+func (m *memStore) CreateUser(_ context.Context, email, hash string, role Role) (User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.users[email]; ok {
 		return User{}, ErrConflict
 	}
-	u := User{ID: len(m.users) + 1, Email: email, PasswordHash: hash}
+	u := User{ID: len(m.users) + 1, Email: email, PasswordHash: hash, Role: role}
 	m.users[email] = u
 	return u, nil
 }
@@ -119,12 +163,29 @@ func (m *memStore) UserByEmail(_ context.Context, email string) (User, error) {
 	return u, nil
 }
 
+func (m *memStore) SyncAdmins(_ context.Context, emails []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	admin := map[string]bool{}
+	for _, e := range emails {
+		admin[e] = true
+	}
+	for email, u := range m.users {
+		u.Role = RoleViewer
+		if admin[email] {
+			u.Role = RoleAdmin
+		}
+		m.users[email] = u
+	}
+	return nil
+}
+
 type memCache struct {
-	mu      sync.Mutex
-	data    map[string][]byte
-	broken  bool // simulate Redis being down
-	sets    int
-	deletes int
+	mu     sync.Mutex
+	data   map[string][]byte
+	broken bool // simulate Redis being down
+	sets   int
+	incrs  int
 }
 
 func newMemCache() *memCache { return &memCache{data: map[string][]byte{}} }
@@ -150,15 +211,17 @@ func (c *memCache) Set(_ context.Context, k string, v []byte, _ time.Duration) e
 	return nil
 }
 
-func (c *memCache) Delete(_ context.Context, k string) error {
+func (c *memCache) Incr(_ context.Context, k string) (int64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.broken {
-		return errors.New("redis down")
+		return 0, errors.New("redis down")
 	}
-	c.deletes++
-	delete(c.data, k)
-	return nil
+	c.incrs++
+	n, _ := strconv.ParseInt(string(c.data[k]), 10, 64)
+	n++
+	c.data[k] = []byte(strconv.FormatInt(n, 10))
+	return n, nil
 }
 
 // ---------------------------------------------------------------- harness
@@ -174,12 +237,29 @@ type harness struct {
 	emailed chan Student
 }
 
+const (
+	adminEmail  = "admin@campus.edu"
+	viewerEmail = "viewer@campus.edu"
+)
+
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	cfg, err := LoadConfig(mapEnv(map[string]string{
+	return newHarnessWith(t, nil)
+}
+
+// newHarnessWith builds a harness whose configuration is the test defaults
+// plus extra environment variables.
+func newHarnessWith(t *testing.T, extra map[string]string) *harness {
+	t.Helper()
+	env := map[string]string{
 		"DATABASE_URL": "postgres://unused",
 		"JWT_SECRET":   testSecret,
-	}))
+		"ADMIN_EMAILS": adminEmail,
+	}
+	for k, v := range extra {
+		env[k] = v
+	}
+	cfg, err := LoadConfig(mapEnv(env))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,10 +301,10 @@ func (h *harness) do(method, path, token string, body any) *httptest.ResponseRec
 	return rec
 }
 
-// login registers a user (if needed) and returns a valid token.
-func (h *harness) login() string {
+// loginAs registers an account (if needed) and returns a valid token for it.
+func (h *harness) loginAs(email string) string {
 	h.t.Helper()
-	creds := Credentials{Email: "admin@campus.edu", Password: "correct horse"}
+	creds := Credentials{Email: email, Password: "correct horse"}
 	if rec := h.do("POST", "/api/register", "", creds); rec.Code != http.StatusCreated && rec.Code != http.StatusConflict {
 		h.t.Fatalf("register: %d %s", rec.Code, rec.Body)
 	}
@@ -234,6 +314,10 @@ func (h *harness) login() string {
 	}
 	return decode[struct{ Token string }](h.t, rec).Token
 }
+
+// login returns an admin token; loginViewer returns a read-only one.
+func (h *harness) login() string       { h.t.Helper(); return h.loginAs(adminEmail) }
+func (h *harness) loginViewer() string { h.t.Helper(); return h.loginAs(viewerEmail) }
 
 func decode[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
 	t.Helper()

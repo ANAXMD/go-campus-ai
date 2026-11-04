@@ -63,7 +63,7 @@ func TestLogin(t *testing.T) {
 		rec := h.do("POST", "/api/login", "", Credentials{"A@campus.edu", "longenough"})
 		wantStatus(t, rec, http.StatusOK)
 		out := decode[map[string]string](t, rec)
-		if out["token"] == "" || out["email"] != "a@campus.edu" {
+		if out["token"] == "" || out["email"] != "a@campus.edu" || out["role"] != "viewer" {
 			t.Fatalf("response = %v", out)
 		}
 	})
@@ -87,7 +87,7 @@ func TestTokenCarriesExpectedClaims(t *testing.T) {
 	if _, err := jwt.ParseWithClaims(token, claims, func(*jwt.Token) (any, error) { return h.srv.cfg.JWTSecret, nil }); err != nil {
 		t.Fatal(err)
 	}
-	if claims.Email != "admin@campus.edu" || claims.Subject != "1" {
+	if claims.Email != "admin@campus.edu" || claims.Subject != "1" || claims.Role != RoleAdmin {
 		t.Errorf("claims = %+v", claims)
 	}
 	if got := time.Until(claims.ExpiresAt.Time); got < 23*time.Hour || got > 25*time.Hour {
@@ -102,6 +102,7 @@ func TestRequireJWT(t *testing.T) {
 	signWith := func(secret string, exp time.Time) string {
 		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, tokenClaims{
 			Email:            "x@campus.edu",
+			Role:             RoleAdmin, // valid in every way except the one each case below breaks
 			RegisteredClaims: jwt.RegisteredClaims{Subject: strconv.Itoa(1), ExpiresAt: jwt.NewNumericDate(exp)},
 		})
 		s, err := tok.SignedString([]byte(secret))
@@ -119,11 +120,23 @@ func TestRequireJWT(t *testing.T) {
 		return signing + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 	}()
 	noExp, err := jwt.NewWithClaims(jwt.SigningMethodHS256, tokenClaims{
+		Role:             RoleAdmin,
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "1"},
 	}).SignedString([]byte(testSecret))
 	if err != nil {
 		t.Fatal(err)
 	}
+	withRole := func(role Role) string {
+		tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, tokenClaims{
+			Role:             role,
+			RegisteredClaims: jwt.RegisteredClaims{Subject: "1", ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))},
+		}).SignedString([]byte(testSecret))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tok
+	}
+	noRole, oddRole := withRole(""), withRole("superuser")
 	// {"alg":"none"} . {"sub":"1","exp":9999999999} . (no signature)
 	noneToken := "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxIiwiZXhwIjo5OTk5OTk5OTk5fQ."
 
@@ -144,6 +157,8 @@ func TestRequireJWT(t *testing.T) {
 		{"alg none", "Bearer " + noneToken, http.StatusUnauthorized},
 		{"correctly signed but HS512", "Bearer " + hs512, http.StatusUnauthorized},
 		{"valid signature but no expiry", "Bearer " + noExp, http.StatusUnauthorized},
+		{"valid signature but no role (issued before roles existed)", "Bearer " + noRole, http.StatusUnauthorized},
+		{"valid signature but an unknown role", "Bearer " + oddRole, http.StatusUnauthorized},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -158,20 +173,22 @@ func TestRequireJWT(t *testing.T) {
 	}
 }
 
-func TestRequireJWTPutsUserIDInContext(t *testing.T) {
+func TestRequireJWTPutsUserIDAndRoleInContext(t *testing.T) {
 	h := newHarness(t)
 	token := h.login()
 
-	var got int
-	var ok bool
+	var id int
+	var role Role
+	var idOK, roleOK bool
 	protected := h.srv.RequireJWT(func(w http.ResponseWriter, r *http.Request) {
-		got, ok = UserIDFrom(r.Context())
+		id, idOK = UserIDFrom(r.Context())
+		role, roleOK = RoleFrom(r.Context())
 	})
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	protected(newRecorder(), req)
-	if !ok || got != 1 {
-		t.Fatalf("UserIDFrom = %d, %v", got, ok)
+	if !idOK || id != 1 || !roleOK || role != RoleAdmin {
+		t.Fatalf("context holds id=%d (%v), role=%q (%v)", id, idOK, role, roleOK)
 	}
 }
 

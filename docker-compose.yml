@@ -37,6 +37,8 @@ services:
       REDIS_ADDR: redis-cache:6379
       JWT_SECRET: ${JWT_SECRET:?copy .env.example to .env and set JWT_SECRET}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
     depends_on:
       postgres-db:
         condition: service_healthy
