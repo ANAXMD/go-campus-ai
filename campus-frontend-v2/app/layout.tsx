@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'CampusFlow',
+  title: 'Student Directory',
   description: 'Student directory for campus administrators.',
   icons: {
     icon: [

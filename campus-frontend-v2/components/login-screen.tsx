@@ -53,7 +53,7 @@ export function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }
             Keep the student directory in one focused workspace.
           </p>
         </div>
-        <p className="text-xs text-slate-600">CampusFlow · Secure administrator access</p>
+        <p className="text-xs text-slate-600">Student Directory · Secure administrator access</p>
       </section>
 
       <section className="flex flex-1 items-center justify-center px-6 py-12">
@@ -82,7 +82,7 @@ export function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }
                 autoComplete="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@campus.edu"
+                placeholder="you@example.com"
                 className={inputClass}
               />
             </label>

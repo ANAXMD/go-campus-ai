@@ -1,6 +1,6 @@
-# go-campus-ai
+# student-directory
 
-[![CI](https://github.com/ANAXMD/go-campus-ai/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ANAXMD/go-campus-ai/actions/workflows/ci.yml)
+[![CI](https://github.com/ANAXMD/student-directory/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ANAXMD/student-directory/actions/workflows/ci.yml)
 
 CampusFlow: a student-directory app. A **Go REST API** (Postgres, Redis cache, JWT auth with roles) with a **Next.js** admin UI. It runs end to end with one `docker compose up` for the backend and `npm run dev` for the front end.
 
@@ -30,7 +30,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000, choose **Create an account** and register with `admin@campus.edu` (the address listed in `ADMIN_EMAILS` in `.env.example`). That account is an **administrator**; any other address becomes a read-only **viewer**. Tables are created automatically on first start.
+Open http://localhost:3000, choose **Create an account** and register with `admin@example.com` (the address listed in `ADMIN_EMAILS` in `.env.example`). That account is an **administrator**; any other address becomes a read-only **viewer**. Tables are created automatically on first start.
 
 To have something to page through, fill the directory with sample students (60 by default; this signs in as the admin above):
 
@@ -38,13 +38,15 @@ To have something to page through, fill the directory with sample students (60 b
 make seed            # or: make seed N=200
 ```
 
-If you registered `admin@campus.edu` with a password of your own, pass it: `SEED_PASSWORD='your password' make seed`.
+If you registered `admin@example.com` with a password of your own, pass it: `SEED_PASSWORD='your password' make seed`.
+
+> **Note:** The seed password is for demos only.
 
 Or use the API directly:
 
 ```bash
-curl -s localhost:8080/api/register -d '{"email":"admin@campus.edu","password":"correct horse"}'
-TOKEN=$(curl -s localhost:8080/api/login -d '{"email":"admin@campus.edu","password":"correct horse"}' | sed 's/.*"token":"\([^"]*\)".*/\1/')
+curl -s localhost:8080/api/register -d '{"email":"admin@example.com","password":"correct horse"}'
+TOKEN=$(curl -s localhost:8080/api/login -d '{"email":"admin@example.com","password":"correct horse"}' | sed 's/.*"token":"\([^"]*\)".*/\1/')
 
 curl -si "localhost:8080/api/students?limit=10&offset=10&q=physics" -H "Authorization: Bearer $TOKEN" | grep -iE "x-cache|total"
 ```

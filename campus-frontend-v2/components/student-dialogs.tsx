@@ -92,7 +92,7 @@ export function StudentFormDialog({
             </p>
           )}
           {field('name', 'Name', 'Alex Morgan')}
-          {field('email', 'Email', 'alex@campus.edu', 'email')}
+          {field('email', 'Email', 'alex@example.com', 'email')}
           {field('major', 'Major', 'Computer Science')}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={onClose} className="text-slate-400 hover:bg-white/5 hover:text-white">

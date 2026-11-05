@@ -65,7 +65,7 @@ jobs:
           fi
 
       - name: Build Docker image
-        run: docker build -t go-campus-ai:ci .
+        run: docker build -t student-directory:ci .
 
   frontend:
     runs-on: ubuntu-latest

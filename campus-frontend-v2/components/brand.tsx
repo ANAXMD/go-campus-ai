@@ -8,7 +8,7 @@ export function Brand() {
       </div>
       <div>
         <p className="text-sm font-bold tracking-wide text-white">
-          Campus<span className="text-cyan-300">Flow</span>
+          Student <span className="text-cyan-300">Directory</span>
         </p>
         <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-slate-500">Management system</p>
       </div>

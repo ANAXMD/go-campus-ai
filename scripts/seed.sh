@@ -11,7 +11,7 @@ set -euo pipefail
 
 COUNT="${1:-60}"
 API_URL="${API_URL:-http://localhost:8080}"
-SEED_EMAIL="${SEED_EMAIL:-admin@campus.edu}"
+SEED_EMAIL="${SEED_EMAIL:-admin@example.com}"
 SEED_PASSWORD="${SEED_PASSWORD:-campus-demo-pass}"
 
 if ! [[ "$COUNT" =~ ^[0-9]+$ ]] || [ "$COUNT" -lt 1 ]; then
@@ -55,7 +55,7 @@ for ((i = 0; i < COUNT; i++)); do
   f="${first[$((i % ${#first[@]}))]}"
   l="${last[$(((i / ${#first[@]} + i) % ${#last[@]}))]}"
   m="${major[$(((i * 7 + i / 3) % ${#major[@]}))]}"
-  email="$(printf '%s.%s.%d' "$f" "$l" "$((i + 1))" | tr '[:upper:]' '[:lower:]')@campus.edu"
+  email="$(printf '%s.%s.%d' "$f" "$l" "$((i + 1))" | tr '[:upper:]' '[:lower:]')@example.com"
 
   code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API_URL/api/students" \
     -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \

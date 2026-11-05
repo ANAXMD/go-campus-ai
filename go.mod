@@ -1,4 +1,4 @@
-module github.com/ANAXMD/go-campus-ai
+module github.com/ANAXMD/student-directory
 
 go 1.26.7
 
